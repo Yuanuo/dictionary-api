@@ -1,0 +1,16 @@
+# maven
+/target
+
+# eclipse
+/.settings
+/.classpath
+/.project
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# more
+bak/
