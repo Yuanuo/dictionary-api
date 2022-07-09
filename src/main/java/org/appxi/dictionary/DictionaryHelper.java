@@ -55,6 +55,9 @@ public final class DictionaryHelper {
             content = content.replaceFirst("^〔", "　〔");
             content = content.replaceFirst("^【", "　【");
         }
+        if (content.contains("。　又")) {
+            content = content.replace("。　又", "。<br>又");
+        }
         //
         DictionaryResource dictionaryResource = null;
         while (true) {
