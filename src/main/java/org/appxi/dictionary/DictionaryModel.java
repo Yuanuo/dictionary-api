@@ -9,6 +9,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
@@ -292,6 +293,7 @@ public class DictionaryModel implements AutoCloseable {
         private final DictEntryExpr entryExpr;
         private final String keywords;
         private final short keywordsLength;
+        private final byte[] keywordsBytes;
         private final Predicate<DictEntry> entryFilter;
         private int entryPosition = HEADER_SIZE;
         private int index = -1, size = -1;
@@ -302,6 +304,7 @@ public class DictionaryModel implements AutoCloseable {
             this.entryExpr = entryExpr;
             this.keywords = keywords;
             this.keywordsLength = (short) (null == keywords || keywords.isBlank() ? 0 : keywords.length());
+            this.keywordsBytes = this.keywordsLength == 0 ? null : keywords.getBytes(CHARSET);
             this.entryFilter = entryFilter;
         }
 
@@ -339,16 +342,31 @@ public class DictionaryModel implements AutoCloseable {
                     break;
                 }
 
-                final String content = entry.title().toLowerCase();
-                if (this.entryExpr == DictEntryExpr.TitleEquals && content.equalsIgnoreCase(keywords)) {
+                // 无论哪种匹配模式，如果完全相等则直接返回
+                if (entry.titleLength == keywordsLength && Arrays.equals((byte[]) entry.title, keywordsBytes)) {
                     this.nextEntry = entry.setScore(100);
                     break;
-                } else {
-                    if (this.entryExpr == DictEntryExpr.TitleStartsWith && content.startsWith(keywords)
-                        || this.entryExpr == DictEntryExpr.TitleEndsWith && content.endsWith(keywords)
-                        || this.entryExpr == DictEntryExpr.TitleContains && content.contains(keywords)) {
-                        this.nextEntry = entry.setScore(content.equalsIgnoreCase(keywords) ? 100 : 1);
+                }
+                if (this.entryExpr == DictEntryExpr.TitleStartsWith) {
+                    if (Arrays.mismatch((byte[]) entry.title, keywordsBytes) == keywordsBytes.length) {
+                        this.nextEntry = entry.setScore(10);
                         break;
+                    }
+                } else if (this.entryExpr == DictEntryExpr.TitleEquals) {
+                    // 无需再次验证
+                } else {
+                    // 仅在需要时再做词条名称解码
+                    final String title = entry.title();
+                    if (this.entryExpr == DictEntryExpr.TitleEndsWith) {
+                        if (title.endsWith(keywords)) {
+                            this.nextEntry = entry.setScore(10);
+                            break;
+                        }
+                    } else if (this.entryExpr == DictEntryExpr.TitleContains) {
+                        if (title.contains(keywords)) {
+                            this.nextEntry = entry.setScore(10);
+                            break;
+                        }
                     }
                 }
             }
