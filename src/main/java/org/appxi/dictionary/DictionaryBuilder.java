@@ -79,7 +79,7 @@ public final class DictionaryBuilder {
         private static final byte ENTRY_BASE_SIZE = 16;
         private byte[] titleBytes, contentBytes;
 
-        public DictEntryExt(int type, String title, String content) {
+        private DictEntryExt(int type, String title, String content) {
             super(type, title, content);
         }
 
@@ -109,7 +109,8 @@ public final class DictionaryBuilder {
     }
 
     public static DictEntryExt of(String title, String content) {
-        return new DictEntryExt(DictEntry.TYPE_ITEM, title, content);
+        // 对于词条直接存储为小写字符，以提升查词性能
+        return new DictEntryExt(DictEntry.TYPE_ITEM, title.toLowerCase(), content);
     }
 
     public static DictEntryExt ofCategory(String title) {
