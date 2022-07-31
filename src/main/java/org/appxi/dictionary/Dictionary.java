@@ -2,6 +2,7 @@ package org.appxi.dictionary;
 
 import org.appxi.prefs.PreferencesInProperties;
 
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -13,6 +14,8 @@ public class Dictionary {
 
     public final String id;
 
+    private Charset charset;
+
     public Dictionary(Path confFile) {
         this.dataDir = confFile.getParent();
         this.conf = new PreferencesInProperties(confFile, StandardCharsets.UTF_8);
@@ -23,6 +26,18 @@ public class Dictionary {
     public Dictionary prop(String key, Object value) {
         this.conf.setProperty(key, value);
         return this;
+    }
+
+    public Charset getCharset() {
+        if (null == this.charset) {
+            this.charset = Charset.forName(this.conf.getString("charset", "UTF-16BE"), StandardCharsets.UTF_16BE);
+        }
+        return this.charset;
+    }
+
+    public void setCharset(Charset charset) {
+        this.charset = Objects.requireNonNull(charset);
+        this.conf.setProperty("charset", charset.name());
     }
 
     public String getName() {

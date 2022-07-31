@@ -7,8 +7,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.function.BiConsumer;
@@ -17,7 +15,6 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public class DictionaryModel implements AutoCloseable {
-    public static final Charset CHARSET = StandardCharsets.UTF_16BE;
     public static final byte HEADER_SIZE = 12;
 
     static File resolveIdxFile(Dictionary d) {
@@ -304,7 +301,7 @@ public class DictionaryModel implements AutoCloseable {
             this.entryExpr = entryExpr;
             this.keywords = keywords;
             this.keywordsLength = (short) (null == keywords || keywords.isBlank() ? 0 : keywords.length());
-            this.keywordsBytes = this.keywordsLength == 0 ? null : keywords.getBytes(CHARSET);
+            this.keywordsBytes = this.keywordsLength == 0 ? null : keywords.getBytes(model.dictionary.getCharset());
             this.entryFilter = entryFilter;
         }
 

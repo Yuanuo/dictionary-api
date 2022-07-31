@@ -25,7 +25,7 @@ public final class DictionaryBuilder {
         final IntHolder binPosition = new IntHolder(0);
         for (int i = 0; i < flatEntryList.size(); i++) {
             DictEntryExt entry = flatEntryList.get(i);
-            entry.prepare(distinctPositions, idxPosition, binPosition);
+            entry.prepare(dictionary, distinctPositions, idxPosition, binPosition);
             if (entry.isCategory()) {
                 flatEntryList.addAll(entry.children.stream().map(child -> {
                     child.pid = entry.id;
@@ -83,8 +83,8 @@ public final class DictionaryBuilder {
             super(type, title, content);
         }
 
-        private void prepare(HashMap<Integer, Integer> distinctPositions, IntHolder idxPosition, IntHolder binPosition) {
-            this.titleBytes = this.title().getBytes(DictionaryModel.CHARSET);
+        private void prepare(Dictionary dictionary, HashMap<Integer, Integer> distinctPositions, IntHolder idxPosition, IntHolder binPosition) {
+            this.titleBytes = this.title().getBytes(dictionary.getCharset());
             if (this.isCategory()) {
                 this.contentMark = this.children.size();
             } else {
@@ -98,7 +98,7 @@ public final class DictionaryBuilder {
                     this.contentMark = binPosition.value;
                     // 记录下此内容的位置
                     distinctPositions.put(distinctKey, this.contentMark);
-                    this.contentBytes = this.contentText().getBytes(DictionaryModel.CHARSET);
+                    this.contentBytes = this.contentText().getBytes(dictionary.getCharset());
                     binPosition.value += 4 + this.contentBytes.length;
                 }
             }

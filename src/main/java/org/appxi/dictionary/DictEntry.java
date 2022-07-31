@@ -4,8 +4,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 
-import static org.appxi.dictionary.DictionaryModel.CHARSET;
-
 /**
  * 词条
  */
@@ -77,7 +75,7 @@ public class DictEntry {
      */
     public String title() {
         if (this.title instanceof byte[] bytes) {
-            this.title = new String(bytes, CHARSET);
+            this.title = new String(bytes, this.model.dictionary.getCharset());
         }
         return (String) this.title;
     }
@@ -90,7 +88,7 @@ public class DictEntry {
      */
     public String contentText() {
         if (this.content instanceof byte[] bytes) {
-            this.content = new String(bytes, CHARSET);
+            this.content = new String(bytes, this.model.dictionary.getCharset());
         }
         return (String) this.content;
     }
