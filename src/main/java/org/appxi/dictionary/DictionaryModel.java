@@ -288,9 +288,8 @@ public class DictionaryModel implements AutoCloseable {
     private static final class SearcherIterator implements Iterator<DictEntry.Scored> {
         private final DictionaryModel model;
         private final DictEntryExpr entryExpr;
-        private final String keywords;
-        private final short keywordsLength;
         private final byte[] keywordsBytes;
+        private final int keywordsBytesLength;
         private final Predicate<DictEntry> entryFilter;
         private int entryPosition = HEADER_SIZE;
         private int index = -1, size = -1;
@@ -299,9 +298,8 @@ public class DictionaryModel implements AutoCloseable {
         public SearcherIterator(DictionaryModel model, String keywords, DictEntryExpr entryExpr, Predicate<DictEntry> entryFilter) {
             this.model = model;
             this.entryExpr = entryExpr;
-            this.keywords = keywords;
-            this.keywordsLength = (short) (null == keywords || keywords.isBlank() ? 0 : keywords.length());
-            this.keywordsBytes = this.keywordsLength == 0 ? null : keywords.getBytes(model.dictionary.getCharset());
+            this.keywordsBytes = (null == keywords || keywords.isBlank()) ? null : keywords.getBytes(model.dictionary.getCharset());
+            this.keywordsBytesLength = null == this.keywordsBytes ? 0 : this.keywordsBytes.length;
             this.entryFilter = entryFilter;
         }
 
@@ -318,51 +316,60 @@ public class DictionaryModel implements AutoCloseable {
                 final DictEntry.Scored entry = new DictEntry.Scored().setScore(0);
                 entry.model = this.model;
                 entry.id = this.entryPosition;
-                short entrySize = this.model.readEntry(entry);
-                this.entryPosition += entrySize;
-                // skip folder
+                this.entryPosition += this.model.readEntry(entry);
+                // 忽略非实体词条
                 if (entry.isCategory())
                     continue;
 
+                final byte[] titleBytes = (byte[]) entry.title;
+                final int titleBytesLength = titleBytes.length;
+
                 // 当前词条的字符长度小于指定的keywords长度时，直接认为不符合条件
                 // 例如，搜索5个字符，但当前词条仅1-4个字符，此时无法匹配
-                if (keywordsLength > entry.titleLength) {
+                if (titleBytesLength < keywordsBytesLength) {
                     continue;
                 }
-                // skip not acceptable
+                // 允许自定义的词条过滤验证
                 if (null != this.entryFilter && !this.entryFilter.test(entry))
                     continue;
 
                 // 未指定keywords时不做后续验证
-                if (keywordsLength == 0) {
+                if (keywordsBytesLength == 0) {
                     this.nextEntry = entry;
                     break;
                 }
 
                 // 无论哪种匹配模式，如果完全相等则直接返回
-                if (entry.titleLength == keywordsLength && Arrays.equals((byte[]) entry.title, keywordsBytes)) {
+                if (titleBytesLength == keywordsBytesLength && Arrays.equals(titleBytes, keywordsBytes)) {
                     this.nextEntry = entry.setScore(100);
                     break;
                 }
                 if (this.entryExpr == DictEntryExpr.TitleStartsWith) {
-                    if (Arrays.mismatch((byte[]) entry.title, keywordsBytes) == keywordsBytes.length) {
+                    // 词条名称的前面部分（与搜索关键词相同长度）匹配搜索关键词的全部部分
+                    if (Arrays.equals(titleBytes, 0, keywordsBytesLength,
+                            keywordsBytes, 0, keywordsBytesLength)) {
                         this.nextEntry = entry.setScore(10);
                         break;
                     }
                 } else if (this.entryExpr == DictEntryExpr.TitleEquals) {
                     // 无需再次验证
-                } else {
-                    // 仅在需要时再做词条名称解码
-                    final String title = entry.title();
-                    if (this.entryExpr == DictEntryExpr.TitleEndsWith) {
-                        if (title.endsWith(keywords)) {
-                            this.nextEntry = entry.setScore(10);
-                            break;
-                        }
-                    } else if (this.entryExpr == DictEntryExpr.TitleContains) {
-                        if (title.contains(keywords)) {
-                            this.nextEntry = entry.setScore(10);
-                            break;
+                } else if (this.entryExpr == DictEntryExpr.TitleEndsWith) {
+                    // 词条名称的后面部分（与搜索关键词相同长度）匹配搜索关键词的全部部分
+                    if (Arrays.equals(titleBytes, titleBytesLength - keywordsBytesLength, titleBytesLength,
+                            keywordsBytes, 0, keywordsBytesLength)) {
+                        this.nextEntry = entry.setScore(10);
+                        break;
+                    }
+                } else if (this.entryExpr == DictEntryExpr.TitleContains) {
+                    for (int i = 0; i < titleBytesLength; i++) {
+                        if (titleBytes[i] == keywordsBytes[0]) {
+                            final int toIdx = i + keywordsBytesLength;
+                            // 如果从指定位置开始的后面部分（与搜索关键词相同长度）完全匹配搜索关键词的全部部分
+                            if (toIdx <= titleBytesLength && Arrays.equals(titleBytes, i, toIdx,
+                                    keywordsBytes, 0, keywordsBytesLength)) {
+                                this.nextEntry = entry.setScore(10);
+                                return true;
+                            }
                         }
                     }
                 }
