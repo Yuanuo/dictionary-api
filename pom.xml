@@ -6,7 +6,7 @@
 
     <groupId>org.appxi</groupId>
     <artifactId>dictionary-api</artifactId>
-    <version>22.07.31</version>
+    <version>22.08.02</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
