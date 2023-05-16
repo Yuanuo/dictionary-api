@@ -9,32 +9,24 @@ import java.util.regex.Pattern;
 public final class DictionaryHelper {
     private static final Pattern PAT_PIC = Pattern.compile("(.*)(<PIC>[a-zA-Z\\d]+[.](jpg|JPG|png|PNG|bmp|BMP|gif|GIF)</PIC>)(.*)");
 
-    public static String toTextDocument(DictEntry entry) {
+    public static String toTextDocument(Dictionary.Entry entry) {
         if (null == entry.title()) {
-            entry.model.readEntry(entry);
-        }
-
-        if (null == entry.content && !entry.isCategory()) {
-            entry.model.readEntryContentText(entry);
+            entry.dictionary.readEntry(entry);
         }
 
         return entry.title()
                + "\n" + entry.contentText()
-               + "\n——【" + entry.dictionary().getName() + "】";
+               + "\n——【" + entry.dictionary.name + "】";
     }
 
-    public static String toHtmlDocument(DictEntry entry) {
+    public static String toHtmlDocument(Dictionary.Entry entry) {
         if (null == entry.title()) {
-            entry.model.readEntry(entry);
-        }
-
-        if (null == entry.content && !entry.isCategory()) {
-            entry.model.readEntryContentText(entry);
+            entry.dictionary.readEntry(entry);
         }
 
         String content = entry.isCategory() ? "<>" : entry.contentText();
         //
-        content = content.replace("<SEEALSO>", "<a href=\"javascript:void();\" onclick=\"_dict_SeeAlso('" + entry.dictionary().id + "', this)\">");
+        content = content.replace("<SEEALSO>", "<a href=\"javascript:void();\" onclick=\"_dict_SeeAlso('" + entry.dictionary.id + "', this)\">");
         content = content.replace("</SEEALSO>", "</a>");
         //
         // 特殊标记标准化
@@ -59,49 +51,40 @@ public final class DictionaryHelper {
             content = content.replace("。　又", "。<br>又");
         }
         //
-        DictionaryResource dictionaryResource = null;
-        while (true) {
-            Matcher matcher = PAT_PIC.matcher(content);
-            if (!matcher.matches()) {
-                break;
-            }
-            if (null == dictionaryResource) {
-                dictionaryResource = new DictionaryResource(entry.dictionary());
-            }
-
-            try {
-                String picPart = matcher.group(2);
-                String picName = picPart.substring(5, picPart.length() - 6);
-
-                InputStream stream = dictionaryResource.getInputStream(picName);
-                if (null != stream) {
-                    byte[] imgBytes = stream.readAllBytes();
-
-                    String imgType = picName.substring(picName.indexOf('.') + 1).toLowerCase(Locale.ROOT);
-                    String imgData = "data:image/".concat(imgType).concat(";base64,").concat(Base64.getEncoder().encodeToString(imgBytes));
-                    String imgPart = "<img src=\"" + imgData + "\" />";
-
-                    content = content.replace(picPart, imgPart);
+        if (entry.dictionary.hasExtraResources()) {
+            while (true) {
+                Matcher matcher = PAT_PIC.matcher(content);
+                if (!matcher.matches()) {
+                    break;
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-        if (null != dictionaryResource) {
-            try {
-                dictionaryResource.close();
-            } catch (Exception e) {
-                e.printStackTrace();
+
+                try {
+                    String picPart = matcher.group(2);
+                    String picName = picPart.substring(5, picPart.length() - 6);
+
+                    InputStream stream = entry.dictionary.getExtraResource(picName);
+                    if (null != stream) {
+                        byte[] imgBytes = stream.readAllBytes();
+
+                        String imgType = picName.substring(picName.indexOf('.') + 1).toLowerCase(Locale.ROOT);
+                        String imgData = "data:image/".concat(imgType).concat(";base64,").concat(Base64.getEncoder().encodeToString(imgBytes));
+                        String imgPart = "<img src=\"" + imgData + "\" />";
+
+                        content = content.replace(picPart, imgPart);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         }
         //
-        return "<div style=\"display: block;\" data-dict=\"" + entry.dictionary().id + "|" + entry.dictionary().getName() + "\">"
+        return "<div style=\"display: block;\" data-dict=\"" + entry.dictionary.id + "|" + entry.dictionary.name + "\">"
                + "<h2 style=\"text-align: center;\">"
-               + "<a href=\"javascript:void();\" onclick=\"_dict_SeeAlso('" + entry.dictionary().id + "', this)\">"
+               + "<a href=\"javascript:void();\" onclick=\"_dict_SeeAlso('" + entry.dictionary.id + "', this)\">"
                + entry.title()
                + "</a>"
                + "</h2>"
-               + "<div style=\"text-align: center;\">——《" + entry.dictionary().getName() + "》</div>"
+               + "<div style=\"text-align: center;\">——《" + entry.dictionary.name + "》</div>"
                + "<p>" + content + "</p>"
                + "<hr>"
                + "</div>";

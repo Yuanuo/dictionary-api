@@ -1,119 +1,188 @@
 package org.appxi.dictionary;
 
 import org.appxi.holder.IntHolder;
-import org.appxi.util.FileHelper;
+import org.appxi.holder.LongHolder;
+import org.appxi.util.ext.Node;
 
+import java.io.File;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-public final class DictionaryBuilder {
-    public static void build(Dictionary dictionary, List<DictEntry.Node> entryItems) throws Exception {
-        build(dictionary, entryItems.stream().map(v -> (DictEntryExt) v).toArray(DictEntryExt[]::new));
+public class DictionaryBuilder {
+    private static final byte ENTRY_BASE_SIZE = 17;
+    private static final Object AK_CONTENT_BYTES = "AK_contentBytes";
+    private static final Object AK_TITLE_BYTES = "AK_titleBytes";
+    private static final Object AK_TITLE_ALIAS = "AK_titleAlias";
+
+    public static Node<Dictionary.Entry> alias(Node<Dictionary.Entry> entryNode, String... alias) {
+        if (null == alias || alias.length == 0) {
+            entryNode.removeAttr(AK_TITLE_ALIAS);
+        } else {
+            entryNode.attr(AK_TITLE_ALIAS, alias);
+        }
+        return entryNode;
     }
 
-    public static void build(Dictionary dictionary, DictEntryExt... entryItems) throws Exception {
-        final DictEntryExt rootEntry = ofCategory("ROOT");
-        rootEntry.children.addAll(Arrays.asList(entryItems));
+    public static File build(Node<Dictionary.Entry> entryRoot,
+                             Charset charset,
+                             Compression compression,
+                             String metadata,
+                             String name, Path repo) throws Exception {
+        final short charsetType;
+        if (StandardCharsets.UTF_16BE.equals(charset)) {
+            charsetType = 1;
+        } else if (StandardCharsets.UTF_16LE.equals(charset)) {
+            charsetType = 2;
+        } else if (StandardCharsets.US_ASCII.equals(charset)) {
+            charsetType = 3;
+        } else if (StandardCharsets.ISO_8859_1.equals(charset)) {
+            charsetType = 4;
+        } else {
+            charsetType = 0;
+            charset = StandardCharsets.UTF_8;
+        }
+        //
+        final byte[] metadataBytes = (null == metadata ? "" : metadata).getBytes(StandardCharsets.UTF_8);
 
-        final List<DictEntryExt> flatEntryList = new ArrayList<>(List.of(rootEntry));
+        //
+        //
+        final List<Node<Dictionary.Entry>> entryNodes = new ArrayList<>(List.of(entryRoot));
 
-        final HashMap<Integer, Integer> distinctPositions = new HashMap<>();
-        final IntHolder idxPosition = new IntHolder(DictionaryModel.HEADER_SIZE);
-        final IntHolder binPosition = new IntHolder(0);
-        for (int i = 0; i < flatEntryList.size(); i++) {
-            DictEntryExt entry = flatEntryList.get(i);
-            entry.prepare(dictionary, distinctPositions, idxPosition, binPosition);
-            if (entry.isCategory()) {
-                flatEntryList.addAll(entry.children.stream().map(child -> {
-                    child.pid = entry.id;
-                    return (DictEntryExt) child;
+        //
+        final IntHolder titlePartCapacity = new IntHolder(0);
+        final LongHolder contentPartCapacity = new LongHolder(0);
+        final Map<Integer, Long> hashcodePositions = new HashMap<>();
+
+        final List<Long> contentPartPositions = new ArrayList<>();
+        contentPartPositions.add(0L);
+
+        long nextContentMappedBufferLimitPosition = Integer.MAX_VALUE;
+        for (int i = 0; i < entryNodes.size(); i++) {
+            Node<Dictionary.Entry> entryNode = entryNodes.get(i);
+            prepareEntryPosition(entryNode, charset, compression, titlePartCapacity, contentPartCapacity, hashcodePositions);
+            if (contentPartCapacity.value > nextContentMappedBufferLimitPosition) {
+                contentPartPositions.add(entryNode.value.contentMark);
+                nextContentMappedBufferLimitPosition = entryNode.value.contentMark + Integer.MAX_VALUE;
+            }
+
+            if (entryNode.value.isCategory()) {
+                entryNodes.addAll(entryNode.children.stream().map(child -> {
+                    child.value.pid = entryNode.value.id;
+                    return child;
                 }).toList());
             }
         }
+        contentPartPositions.add(contentPartCapacity.value);
         //
         //
-        FileHelper.makeDirs(dictionary.dataDir);
-        // build index
-        RandomAccessFile idxFile = new RandomAccessFile(DictionaryModel.resolveIdxFile(dictionary), "rw");
-        idxFile.setLength(idxPosition.value);
-        idxFile.seek(0);
-        idxFile.writeLong(0L);
-        idxFile.writeInt(flatEntryList.size());
-        for (DictEntryExt entry : flatEntryList) {
-            assert entry.id == idxFile.getFilePointer();
+        final File file = repo.resolve(name + Dictionary.FILE_SUFFIX).toFile();
+        file.getParentFile().mkdirs();
+        // build
+        final RandomAccessFile fileAccessor = new RandomAccessFile(file, "rw");
+
+        final ByteBuffer headBuffer = ByteBuffer.allocate(128 + metadataBytes.length + contentPartPositions.size() * 8);
+        headBuffer.putLong(3L); // version
+        headBuffer.putShort(charsetType); // charset
+        headBuffer.put((byte) compression.ordinal()); // compressed
+        headBuffer.putInt(metadataBytes.length); // metadata size
+        headBuffer.put(metadataBytes); // metadata bytes
+        headBuffer.putInt(entryNodes.size()); // entry size
+
+        //
+        headBuffer.putInt(contentPartPositions.size()); // content positions size
+        headBuffer.mark();
+        contentPartPositions.forEach(headBuffer::putLong); // content position
+
+        final long filePointerOfTitlePart = headBuffer.position();
+        final long filePointerOfContentPart = filePointerOfTitlePart + titlePartCapacity.value;
+        final long filePointerAfterContentPart = filePointerOfContentPart + contentPartCapacity.value;
+
+        headBuffer.reset();
+        headBuffer.putLong(filePointerOfContentPart);
+        headBuffer.position((int) filePointerOfTitlePart);
+
+        //
+
+        //
+        fileAccessor.setLength(filePointerAfterContentPart);
+        fileAccessor.write(Arrays.copyOf(headBuffer.flip().array(), headBuffer.limit()));
+
+        // build title part
+        for (Node<Dictionary.Entry> entryNode : entryNodes) {
+            assert entryNode.value.id == fileAccessor.getFilePointer() - filePointerOfTitlePart;
             //
-            idxFile.writeShort(DictEntryExt.ENTRY_BASE_SIZE + entry.titleBytes.length);
-            idxFile.writeInt(entry.pid);
-            idxFile.writeShort(entry.type);
-            idxFile.writeInt(entry.contentMark);
-            idxFile.writeShort(entry.title().length());
-            idxFile.writeShort(entry.titleBytes.length);
-            idxFile.write(entry.titleBytes);
+            final byte[] titleBytes = entryNode.removeAttr(AK_TITLE_BYTES);
+            //
+            fileAccessor.writeShort(ENTRY_BASE_SIZE + titleBytes.length);
+            fileAccessor.writeInt(entryNode.value.pid);
+            fileAccessor.writeByte(entryNode.value.type);
+            fileAccessor.writeLong(entryNode.value.contentMark);
+            fileAccessor.writeShort(titleBytes.length);
+            fileAccessor.write(titleBytes);
         }
-        idxFile.close();
 
-        // build data
-        RandomAccessFile datFile = new RandomAccessFile(DictionaryModel.resolveDatFile(dictionary), "rw");
-        datFile.setLength(binPosition.value);
-        datFile.seek(0);
-        for (DictEntryExt entry : flatEntryList) {
-            if (entry.isCategory()) {
+
+        // build content part
+        for (Node<Dictionary.Entry> entryNode : entryNodes) {
+            if (entryNode.value.isCategory()) {
                 continue;
             }
+            final byte[] contentBytes = entryNode.removeAttr(AK_CONTENT_BYTES);
             // 重复的内容不需写入
-            if (null == entry.contentBytes) {
+            if (null == contentBytes) {
                 continue;
             }
-            datFile.writeInt(entry.contentBytes.length);
-            datFile.write(entry.contentBytes);
+
+            assert entryNode.value.contentMark == fileAccessor.getFilePointer() - filePointerOfContentPart;
+
+            fileAccessor.writeInt(contentBytes.length);
+            fileAccessor.write(contentBytes);
         }
-        datFile.close();
+
+        assert filePointerAfterContentPart == fileAccessor.getFilePointer();
+
+        fileAccessor.close();
+
+        return file;
+    }
+
+    private static void prepareEntryPosition(Node<Dictionary.Entry> entryNode,
+                                             Charset charset,
+                                             Compression compression,
+                                             IntHolder titlePartCapacity,
+                                             LongHolder contentPartCapacity,
+                                             Map<Integer, Long> hashcodePositions) {
+        final byte[] titleBytes = entryNode.value.title().getBytes(charset);
+        entryNode.attr(AK_TITLE_BYTES, titleBytes);
+        entryNode.value.id = titlePartCapacity.value;
+        titlePartCapacity.value += ENTRY_BASE_SIZE + titleBytes.length;
+
         //
-        dictionary.conf.save();
-    }
-
-    public static class DictEntryExt extends DictEntry.Node {
-        private static final byte ENTRY_BASE_SIZE = 16;
-        private byte[] titleBytes, contentBytes;
-
-        private DictEntryExt(int type, String title, String content) {
-            super(type, title, content);
-        }
-
-        private void prepare(Dictionary dictionary, HashMap<Integer, Integer> distinctPositions, IntHolder idxPosition, IntHolder binPosition) {
-            this.titleBytes = this.title().getBytes(dictionary.getCharset());
-            if (this.isCategory()) {
-                this.contentMark = this.children.size();
+        if (entryNode.value.isCategory()) {
+            entryNode.value.contentMark = entryNode.children.size();
+        } else {
+            int hashcode = entryNode.value.contentText().hashCode();
+            if (hashcodePositions.containsKey(hashcode)) {
+                // 已经存在相同内容，仅指向该内容位置，重复内容无需写入
+                entryNode.value.contentMark = hashcodePositions.get(hashcode);
             } else {
-                int distinctKey = this.contentText().hashCode();
-                if (distinctPositions.containsKey(distinctKey)) {
-                    // 已经存在相同内容，仅指向该内容位置
-                    this.contentMark = distinctPositions.get(distinctKey);
-                    // 标记为null，表示是重复内容无需写入
-                    this.contentBytes = null;
-                } else {
-                    this.contentMark = binPosition.value;
-                    // 记录下此内容的位置
-                    distinctPositions.put(distinctKey, this.contentMark);
-                    this.contentBytes = this.contentText().getBytes(dictionary.getCharset());
-                    binPosition.value += 4 + this.contentBytes.length;
-                }
+                entryNode.value.contentMark = contentPartCapacity.value;
+                // 记录下此内容的位置
+                hashcodePositions.put(hashcode, entryNode.value.contentMark);
+
+                final byte[] contentBytes = compression.compress(entryNode.value.contentText().getBytes(charset));
+                entryNode.attr(AK_CONTENT_BYTES, contentBytes);
+                // 计算出下一个数据块的位置
+                contentPartCapacity.value += 4 + contentBytes.length;
             }
-
-            this.id = idxPosition.value;
-            idxPosition.value += ENTRY_BASE_SIZE + this.titleBytes.length;
         }
-    }
-
-    public static DictEntryExt of(String title, String content) {
-        // 对于词条直接存储为小写字符，以提升查词性能
-        return new DictEntryExt(DictEntry.TYPE_ITEM, title.toLowerCase(), content);
-    }
-
-    public static DictEntryExt ofCategory(String title) {
-        return new DictEntryExt(DictEntry.TYPE_CATEGORY, title, null);
     }
 }

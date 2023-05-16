@@ -3,7 +3,7 @@ package org.appxi.dictionary;
 /**
  * 词条匹配模式
  */
-public enum DictEntryExpr {
+public enum SearchType {
     /**
      * Title完全匹配
      */
@@ -25,12 +25,11 @@ public enum DictEntryExpr {
      * 根据输入keywords动态检测匹配模式，仅针对查询Title的规则；
      *
      * @param keywords 输入
-     * @return DictEntryExpr
      */
-    public static DictEntryExpr detectForTitle(StringBuilder keywords) {
-        DictEntryExpr entryExpr = DictEntryExpr.TitleStartsWith;
+    public static SearchType detect(StringBuilder keywords) {
+        SearchType searchType = SearchType.TitleStartsWith;
         if (keywords.isEmpty()) {
-            return entryExpr;
+            return searchType;
         }
 
         // 表达式至少有两个字符
@@ -40,15 +39,15 @@ public enum DictEntryExpr {
                 || keywords.charAt(0) == '\'' && keywords.charAt(keywords.length() - 1) == '\'' // 英文单引号包含
                 || keywords.charAt(0) == '‘' && keywords.charAt(keywords.length() - 1) == '’' // 以中文单引号包含
             ) {
-                entryExpr = DictEntryExpr.TitleEquals;
+                searchType = SearchType.TitleEquals;
                 keywords.deleteCharAt(0);
                 keywords.deleteCharAt(keywords.length() - 1);
             } else if (keywords.charAt(0) == '*' && keywords.charAt(keywords.length() - 1) == '*') { // 以英文星号包含
-                entryExpr = DictEntryExpr.TitleContains;
+                searchType = SearchType.TitleContains;
                 keywords.deleteCharAt(0);
                 keywords.deleteCharAt(keywords.length() - 1);
             } else if (keywords.charAt(0) == '*') { // 以英文星号开始
-                entryExpr = DictEntryExpr.TitleEndsWith;
+                searchType = SearchType.TitleEndsWith;
                 keywords.deleteCharAt(0);
             } else if (keywords.charAt(keywords.length() - 1) == '*') { // 以英文星号结尾
                 keywords.deleteCharAt(keywords.length() - 1);
@@ -56,6 +55,6 @@ public enum DictEntryExpr {
         } else if (keywords.length() > 0 && keywords.charAt(0) == '*') { // 仅英文星号
             keywords.deleteCharAt(0);
         }
-        return entryExpr;
+        return searchType;
     }
 }
