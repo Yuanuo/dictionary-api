@@ -2,6 +2,9 @@ package org.appxi.dictionary;
 
 import org.appxi.holder.IntHolder;
 import org.appxi.holder.LongHolder;
+import org.appxi.smartcn.convert.ChineseConvertors;
+import org.appxi.util.FileHelper;
+import org.appxi.util.ext.Compression;
 import org.appxi.util.ext.Node;
 
 import java.io.File;
@@ -13,8 +16,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class DictionaryBuilder {
     private static final byte ENTRY_BASE_SIZE = 17;
@@ -29,6 +34,18 @@ public class DictionaryBuilder {
             entryNode.attr(AK_TITLE_ALIAS, alias);
         }
         return entryNode;
+    }
+
+    public static File build(Charset charset,
+                             Compression compression,
+                             String metadata,
+                             String name, Path repo,
+                             Dictionary.Entry... entries) throws Exception {
+        final Node<Dictionary.Entry> entryRoot = new Node<>(Dictionary.Entry.ofCategory("ROOT"));
+        for (Dictionary.Entry entry : entries) {
+            entryRoot.add(entry);
+        }
+        return build(entryRoot, charset, compression, metadata, name, repo);
     }
 
     public static File build(Node<Dictionary.Entry> entryRoot,
@@ -53,6 +70,7 @@ public class DictionaryBuilder {
         final byte[] metadataBytes = (null == metadata ? "" : metadata).getBytes(StandardCharsets.UTF_8);
 
         //
+        prepareEntryVariants(entryRoot);
         //
         final List<Node<Dictionary.Entry>> entryNodes = new ArrayList<>(List.of(entryRoot));
 
@@ -83,7 +101,7 @@ public class DictionaryBuilder {
         contentPartPositions.add(contentPartCapacity.value);
         //
         //
-        final File file = repo.resolve(name + Dictionary.FILE_SUFFIX).toFile();
+        final File file = FileHelper.getNonExistsPath(repo, name, Dictionary.FILE_SUFFIX).toFile();
         file.getParentFile().mkdirs();
         // build
         final RandomAccessFile fileAccessor = new RandomAccessFile(file, "rw");
@@ -184,5 +202,35 @@ public class DictionaryBuilder {
                 contentPartCapacity.value += 4 + contentBytes.length;
             }
         }
+    }
+
+    private static void prepareEntryVariants(Node<Dictionary.Entry> entryTree) {
+        //
+        final Set<String> titles = new HashSet<>();
+        entryTree.traverse((depth, node, entry) -> {
+            if (!node.hasChildren()) {
+                titles.add(entry.title());
+            }
+        });
+        //
+        final List<Dictionary.Entry> variants = new ArrayList<>();
+        entryTree.traverse((depth, node, entry) -> {
+            if (node.hasChildren()) {
+                return;
+            }
+
+            for (String title : new String[]{
+                    entry.title().toLowerCase(), // 全小写
+                    ChineseConvertors.toHans(entry.title()), // 简体中文
+                    ChineseConvertors.toHant(entry.title()) //繁体中文
+            }) {
+                if (!titles.contains(title)) {
+                    System.out.println("Make Variant : " + title);
+                    variants.add(Dictionary.Entry.of(title, entry.contentText()));
+                    titles.add(title);
+                }
+            }
+        });
+        variants.forEach(entryTree::add);
     }
 }

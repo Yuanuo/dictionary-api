@@ -9,25 +9,22 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Predicate;
 
 public final class Dictionaries {
-    private static final Map<File, Dictionary> REGISTERED_DICTIONARIES = new HashMap<>();
-    private static final Map<String, Dictionary> MANAGED_DICTIONARIES = new LinkedHashMap<>();
+    private static final Map<File, Dictionary> cachedFiles = new HashMap<>();
 
-    public final List<Dictionary> list;
+    public static final Dictionaries def = new Dictionaries();
 
-    private Dictionaries(Collection<Dictionary> list) {
-        this.list = new ArrayList<>(list);
-    }
+    private final List<Dictionary> list = new ArrayList<>();
 
-    public static void discover(Path... paths) {
+    public void add(Path... paths) {
         for (Path path : paths) {
             try {
                 if (Files.notExists(path)) {
@@ -37,12 +34,12 @@ public final class Dictionaries {
                     Files.walkFileTree(path, new SimpleFileVisitor<>() {
                         @Override
                         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                            register(file.toFile());
+                            add(file.toFile());
                             return FileVisitResult.CONTINUE;
                         }
                     });
                 } else {
-                    register(path.toFile());
+                    add(path.toFile());
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -50,64 +47,65 @@ public final class Dictionaries {
         }
     }
 
-    public static void register(File... files) {
-        for (File file : files) {
-            final String fileName = file.getName();
+    public void add(File file) {
+        final String fileName = file.getName();
 
-            if (!file.isFile() || !file.exists() || !file.canRead()
-                || !fileName.toLowerCase().endsWith(Dictionary.FILE_SUFFIX)) {
-                continue;
-            }
+        if (!file.isFile() || !file.exists() || !file.canRead()
+            || !fileName.toLowerCase().endsWith(Dictionary.FILE_SUFFIX)) {
+            return;
+        }
 
-            final String name = fileName.substring(0, fileName.lastIndexOf('.'));
-            final String id = name.hashCode() + "_" + file.length();
+        final String name = fileName.substring(0, fileName.lastIndexOf('.'));
+        final String id = name.hashCode() + "_" + file.length();
+        final Dictionary dictionary = cachedFiles.computeIfAbsent(file, f -> new Dictionary(id, name, f));
 
-            Dictionary dictionary = REGISTERED_DICTIONARIES.get(file);
-            if (null == dictionary) {
-                dictionary = new Dictionary(id, name, file);
-                REGISTERED_DICTIONARIES.put(file, dictionary);
-            }
-
-            if (!MANAGED_DICTIONARIES.containsKey(id)) {
-                MANAGED_DICTIONARIES.put(id, dictionary);
-            }
+        if (!list.contains(dictionary)) {
+            list.add(dictionary);
         }
     }
 
-    public static void unregister(File... files) {
-        for (File file : files) {
-            Dictionary dictionary = REGISTERED_DICTIONARIES.get(file);
-            if (null != dictionary) {
-                MANAGED_DICTIONARIES.remove(dictionary.id);
-            }
+    public void remove(Path... paths) {
+        for (Path path : paths) {
+            list.removeIf(d -> d.file.toPath().startsWith(path));
         }
     }
 
-    public static void clear() {
-        MANAGED_DICTIONARIES.clear();
+    public void clear() {
+        this.list.clear();
     }
 
-    public static Dictionary getDictionary(String idOrName) {
-        for (Dictionary dictionary : MANAGED_DICTIONARIES.values()) {
+    public int size() {
+        return this.list.size();
+    }
+
+    public long sizeEntries() {
+        return this.list.stream().mapToLong(Dictionary::size).sum();
+    }
+
+    public List<Dictionary> list() {
+        return Collections.unmodifiableList(this.list);
+    }
+
+    public Dictionaries filtered(Predicate<Dictionary> predicate) {
+        final Dictionaries result = new Dictionaries();
+        result.list.addAll(null == predicate ? this.list : this.list.stream().filter(predicate).toList());
+        return result;
+    }
+
+    public Dictionaries shuffled() {
+        final Dictionaries result = new Dictionaries();
+        result.list.addAll(this.list);
+        Collections.shuffle(result.list);
+        return result;
+    }
+
+    public static Dictionary find(String idOrName) {
+        for (Dictionary dictionary : cachedFiles.values()) {
             if (Objects.equals(idOrName, dictionary.id) || Objects.equals(idOrName, dictionary.name)) {
                 return dictionary;
             }
         }
         return null;
-    }
-
-    public static Dictionary getDictionary(Predicate<Dictionary> dictionaryPredicate) {
-        return MANAGED_DICTIONARIES.values().stream().filter(dictionaryPredicate).findFirst().orElse(null);
-    }
-
-    public static Dictionaries getDictionaries() {
-        return getDictionaries(null);
-    }
-
-    public static Dictionaries getDictionaries(Predicate<Dictionary> dictionaryPredicate) {
-        return new Dictionaries(null == dictionaryPredicate
-                ? MANAGED_DICTIONARIES.values()
-                : MANAGED_DICTIONARIES.values().stream().filter(dictionaryPredicate).toList());
     }
 
     /**
@@ -117,88 +115,104 @@ public final class Dictionaries {
      * @param keywords 关键词
      * @return 结果列表
      */
-    public static Iterator<Dictionary.Entry> search(String keywords) {
-        return search(keywords, null);
+    public Iterator<Dictionary.Entry> search(String keywords) {
+        return search(keywords, (Predicate<Dictionary.Entry>) null);
     }
 
     /**
      * 直接查词无条目过滤；匹配模式从keywords检测:
      * <p>匹配规则：默认1）以词开始：输入 或 输入*；2）以词结尾：*输入；3）以词存在：*输入*；4）以双引号包含精确查词："输入"；</p>
      *
-     * @param keywords            关键词
-     * @param dictionaryPredicate 词典过滤器
+     * @param keywords  关键词
+     * @param matchType 匹配模式
      * @return 结果列表
      */
-    public static Iterator<Dictionary.Entry> search(String keywords,
-                                                    Predicate<Dictionary> dictionaryPredicate) {
-        return search(keywords, null, dictionaryPredicate);
+    public Iterator<Dictionary.Entry> search(String keywords, MatchType matchType) {
+        return search(keywords, matchType, null);
     }
 
     /**
      * 直接查词且支持条目过滤；匹配模式从keywords检测:
      * <p>匹配规则：默认1）以词开始：输入 或 输入*；2）以词结尾：*输入；3）以词存在：*输入*；4）以双引号包含精确查词："输入"；</p>
      *
-     * @param keywords            关键词
-     * @param entryPredicate      条目过滤器
-     * @param dictionaryPredicate 词典过滤器
+     * @param keywords       关键词
+     * @param entryPredicate 条目过滤器
      * @return 结果列表
      */
-    public static Iterator<Dictionary.Entry> search(String keywords,
-                                                    Predicate<Dictionary.Entry> entryPredicate,
-                                                    Predicate<Dictionary> dictionaryPredicate) {
+    public Iterator<Dictionary.Entry> search(String keywords,
+                                             Predicate<Dictionary.Entry> entryPredicate) {
         final StringBuilder buf = new StringBuilder(null == keywords ? "" : keywords);
-        final SearchType searchType = SearchType.detect(buf);
-        return search(buf.toString(), searchType, entryPredicate, dictionaryPredicate);
-    }
-
-    /**
-     * 按指定匹配模式查词，不会从所查词中检测匹配模式
-     *
-     * @param keywords            关键词
-     * @param searchType          匹配模式
-     * @param entryPredicate      条目过滤器
-     * @param dictionaryPredicate 词典过滤器
-     * @return 结果列表
-     */
-    public static Iterator<Dictionary.Entry> search(String keywords,
-                                                    SearchType searchType,
-                                                    Predicate<Dictionary.Entry> entryPredicate,
-                                                    Predicate<Dictionary> dictionaryPredicate) {
-        return getDictionaries(dictionaryPredicate).search(keywords, searchType, entryPredicate);
-    }
-
-    public int totalDictionaries() {
-        return this.list.size();
-    }
-
-    public long totalEntries() {
-        return this.list.stream().mapToLong(Dictionary::size).sum();
+        final MatchType matchType = MatchType.detect(buf);
+        return search(buf.toString(), matchType, entryPredicate);
     }
 
     /**
      * 按指定匹配模式查词，不会从所查词中检测匹配模式
      *
      * @param keywords       关键词
-     * @param searchType     匹配模式
+     * @param matchType      匹配模式
      * @param entryPredicate 条目过滤器
      * @return 结果列表
      */
     public Iterator<Dictionary.Entry> search(String keywords,
-                                             SearchType searchType,
+                                             MatchType matchType,
                                              Predicate<Dictionary.Entry> entryPredicate) {
         if (list.size() < 40 || keywords.isEmpty() || keywords.replaceAll("[*\"' ]+", "").isEmpty()) {
-            return new DictionariesSearcher(list, keywords, searchType, entryPredicate);
+            return new Searcher(list, keywords, matchType, entryPredicate);
         }
 
         return list.parallelStream()
                 .flatMap(dictionary -> {
-                    final List<Dictionary.Entry> list = new ArrayList<>();
-                    final DictionarySearcher searcher = new DictionarySearcher(dictionary, keywords, searchType, entryPredicate);
+                    final List<Dictionary.Entry> result = new ArrayList<>();
+                    final DictionarySearcher searcher = new DictionarySearcher(dictionary, keywords, matchType, entryPredicate);
                     while (searcher.hasNext()) {
-                        list.add(searcher.next());
+                        result.add(searcher.next());
                     }
-                    return list.stream();
+                    return result.stream();
                 })
                 .toList().iterator();
+    }
+
+    public static final class Searcher implements Iterator<Dictionary.Entry> {
+        private final Iterator<Dictionary> dictionaryIterator;
+
+        private final String keywords;
+        private final MatchType matchType;
+        private final Predicate<Dictionary.Entry> entryPredicate;
+        private Iterator<Dictionary.Entry> searcher;
+        private Dictionary.Entry nextEntry;
+
+        public Searcher(Collection<Dictionary> dictionaries,
+                        String keywords,
+                        MatchType matchType,
+                        Predicate<Dictionary.Entry> entryPredicate) {
+            this.dictionaryIterator = dictionaries.iterator();
+
+            this.keywords = keywords;
+            this.matchType = matchType;
+            this.entryPredicate = entryPredicate;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (null == this.searcher) {
+                if (!this.dictionaryIterator.hasNext()) {
+                    return false;
+                }
+                this.searcher = this.dictionaryIterator.next().search(keywords, matchType, entryPredicate);
+            }
+
+            if (!this.searcher.hasNext()) {
+                this.searcher = null;
+                return hasNext();
+            }
+            this.nextEntry = this.searcher.next();
+            return true;
+        }
+
+        @Override
+        public Dictionary.Entry next() {
+            return this.nextEntry;
+        }
     }
 }

@@ -3,7 +3,7 @@ package org.appxi.dictionary;
 /**
  * 词条匹配模式
  */
-public enum SearchType {
+public enum MatchType {
     /**
      * Title完全匹配
      */
@@ -26,10 +26,10 @@ public enum SearchType {
      *
      * @param keywords 输入
      */
-    public static SearchType detect(StringBuilder keywords) {
-        SearchType searchType = SearchType.TitleStartsWith;
+    public static MatchType detect(StringBuilder keywords) {
+        MatchType matchType = MatchType.TitleStartsWith;
         if (keywords.isEmpty()) {
-            return searchType;
+            return matchType;
         }
 
         // 表达式至少有两个字符
@@ -39,22 +39,22 @@ public enum SearchType {
                 || keywords.charAt(0) == '\'' && keywords.charAt(keywords.length() - 1) == '\'' // 英文单引号包含
                 || keywords.charAt(0) == '‘' && keywords.charAt(keywords.length() - 1) == '’' // 以中文单引号包含
             ) {
-                searchType = SearchType.TitleEquals;
+                matchType = MatchType.TitleEquals;
                 keywords.deleteCharAt(0);
                 keywords.deleteCharAt(keywords.length() - 1);
             } else if (keywords.charAt(0) == '*' && keywords.charAt(keywords.length() - 1) == '*') { // 以英文星号包含
-                searchType = SearchType.TitleContains;
+                matchType = MatchType.TitleContains;
                 keywords.deleteCharAt(0);
                 keywords.deleteCharAt(keywords.length() - 1);
             } else if (keywords.charAt(0) == '*') { // 以英文星号开始
-                searchType = SearchType.TitleEndsWith;
+                matchType = MatchType.TitleEndsWith;
                 keywords.deleteCharAt(0);
             } else if (keywords.charAt(keywords.length() - 1) == '*') { // 以英文星号结尾
                 keywords.deleteCharAt(keywords.length() - 1);
             }
-        } else if (keywords.length() > 0 && keywords.charAt(0) == '*') { // 仅英文星号
+        } else if (!keywords.isEmpty() && keywords.charAt(0) == '*') { // 仅英文星号
             keywords.deleteCharAt(0);
         }
-        return searchType;
+        return matchType;
     }
 }

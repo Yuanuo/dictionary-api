@@ -1,6 +1,8 @@
 package org.appxi.dictionary.io;
 
-import org.appxi.dictionary.Compression;
+import org.appxi.dictionary.Dictionary;
+import org.appxi.util.ext.Compression;
+import org.appxi.util.ext.Node;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -29,11 +31,113 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 import java.util.zip.InflaterOutputStream;
 
-public class MDict {
+public class DictFileMdx {
+    public static Node<Dictionary.Entry> read(File file) {
+        final String dictName = file.getName().replaceFirst("[.][^.]+$", "").strip();
+        final Node<Dictionary.Entry> entryTree = new Node<>(Dictionary.Entry.ofCategory(dictName));
+        //
+        try {
+            final DictFileMdx.MdxFile md = new DictFileMdx.MdxFile(file);
+
+            for (int i = 0; i < md.getNumberEntries(); i++) {
+                final String word0 = md.getEntryAt(i).strip();
+                //
+                if (word0.contains("製作說明") || word0.contains("總目錄")
+                    || word0.startsWith(dictName) || word0.contains(dictName)) {
+                    System.err.println("SKIP WORD: " + word0);
+                    continue;
+                }
+
+                String word1 = word0
+                        .replace("[", "")
+                        .replace("]", "")
+                        .replaceAll("[【】“”\"'‘’\u0092]+", "")
+                        //
+                        .strip();
+                if (word1.startsWith(dictName) || word1.contains(dictName)) {
+                    System.err.println("SKIP WORD: " + word1);
+                    continue;
+                }
+
+                if (word1.startsWith(":")) {
+                    System.err.println("FAKE WORD: " + word1);
+                    continue;
+                }
+
+                //
+                String text = md.getRecordAt(i)
+//                            .replace("<a>", "")
+//                            .replace("</a>", "")
+                        //
+                        .strip();
+                if (text.isBlank()) {
+                    System.out.println();
+                }
+                text = text.replace(" class=MsoNormal", "")
+                        .replace("class=MsoNormal", "")
+                        .replace(" style='font-family:\"Microsoft Himalaya\"'", "")
+                        .replace("style='font-family:\"Microsoft Himalaya\"'", "")
+                        .replace("<style type=\"text/css\">p{margin:0}</style>", "")
+                        .replace("<link rel=\"stylesheet\" type=\"text/css\" href=\"sf_ecce.css\"/>", "")
+                        .replace("<span style=\"float:right;\"><A HREF=\"entry://00 總目錄\">總目錄</a></span><hr color=#AA8A57>", "\r\n")
+                        .replace("<a href=\"entry://:about,首页\">返回首页</a>", "")
+                        .replaceAll("^(<br>)+|(<br>)+$", "")
+                        .replaceAll("<br><br>From：.*<br>(\r\n|[\r\n])", "")
+                        .replaceAll("<br>", "\r\n")
+                        //
+                        .strip();
+
+
+                if (text.startsWith(word0 + "　") || text.startsWith(word0 + " ")
+                    || text.startsWith(word0 + "\r\n") || text.startsWith(word0 + "\r") || text.startsWith(word0 + "\n")) {
+                    text = text.substring(word0.length()).strip();
+                }
+
+                if (text.startsWith(word1 + "　") || text.startsWith(word1 + " ")
+                    || text.startsWith(word1 + "\r\n") || text.startsWith(word1 + "\r") || text.startsWith(word1 + "\n")) {
+                    text = text.substring(word1.length()).strip();
+                }
+
+                if (text.contains(">上一条</a>") || text.contains(">下一条</a>")) {
+                    int idx = text.lastIndexOf("\n");
+                    if (idx != -1) {
+                        String str = text.substring(idx);
+                        if (str.contains(">上一条</a>") || str.contains(">下一条</a>")) {
+                            text = text.substring(0, idx).strip();
+                        }
+                    }
+                }
+                text = text.replaceAll("(\r\n|[\r\n])+", "\r\n")
+                        .replaceAll("<span(\r\n|[\r\n])", "<span ")
+//                            .replace("\\n　", "\r\n")
+//                            .replace("\\n", "\r\n")
+                        .replaceAll("　　", "\r\n");
+                text = text.lines()
+                        .map(String::strip)
+                        .collect(Collectors.joining("\r\n"))
+////                    ;
+////                    text = Jsoup.parse(text).body().html()
+                        .replaceAll("([^.!?\"'。！？“”‘’])(\r\n|[\r\n])", "$1 ")
+                        .replace(" style='font-family:\"微软雅黑\",\"sans-serif\"'", "")
+                        .replace(" style='font-family:\"Calibri\",\"sans-serif\"'", "")
+                        .replace("<span class=\"word\"><span class=\"return-phrase\"><span class=\"l\"><span class=\"i\">" + word0 + "</span></span></span><span class=\"phone\"></span>", "")
+                ;
+                //
+                Dictionary.Entry entry = Dictionary.Entry.of(word1, text);
+                entryTree.add(entry);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //
+        return entryTree;
+    }
+
     static void Log(Object... o) {
         StringBuilder msg = new StringBuilder("fatal_log_mdict : ");
         if (o != null)
@@ -2336,8 +2440,8 @@ public class MDict {
         static byte[] _mdx_decrypt(byte[] comp_block) throws IOException {
             ByteArrayOutputStream data = new ByteArrayOutputStream();
             data.write(comp_block, 4, 4);
-            data.write(MDict.ripemd128.packIntLE(0x3695));
-            byte[] key = MDict.ripemd128.ripemd128(data.toByteArray());
+            data.write(DictFileMdx.ripemd128.packIntLE(0x3695));
+            byte[] key = DictFileMdx.ripemd128.ripemd128(data.toByteArray());
             data.reset();
             data.write(comp_block, 0, 8);
             byte[] comp_block2 = new byte[comp_block.length - 8];

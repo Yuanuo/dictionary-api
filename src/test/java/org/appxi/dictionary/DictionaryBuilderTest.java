@@ -1,5 +1,6 @@
 package org.appxi.dictionary;
 
+import org.appxi.util.ext.Compression;
 import org.appxi.util.ext.Node;
 
 import java.io.File;
@@ -21,10 +22,10 @@ public class DictionaryBuilderTest {
         file.deleteOnExit();
 
         // 设置默认的词典库
-        Dictionaries.register(file);
+        Dictionaries.def.add(file.toPath());
 
         // 根据词典ID获取词典实例
-        Dictionary dictionary = Dictionaries.getDictionary(name);
+        Dictionary dictionary = Dictionaries.find(name);
         System.out.println(dictionary.size());
 
         // 列表该词典实例的所有词条（名称）

@@ -1,6 +1,7 @@
 package org.appxi.dictionary;
 
 import org.appxi.holder.IntHolder;
+import org.appxi.util.ext.Compression;
 import org.appxi.util.ext.Node;
 
 import java.io.ByteArrayInputStream;
@@ -26,7 +27,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public final class Dictionary implements AutoCloseable {
-    public static final String FILE_SUFFIX = ".tomed";
+    public static final String FILE_SUFFIX = ".words";
 
     public final String id, name;
 
@@ -337,20 +338,20 @@ public final class Dictionary implements AutoCloseable {
      */
     public Iterator<Entry> search(String keywords, Predicate<Entry> entryPredicate) {
         StringBuilder buf = new StringBuilder(null == keywords ? "" : keywords);
-        SearchType searchType = SearchType.detect(buf);
-        return search(buf.toString(), searchType, entryPredicate);
+        MatchType matchType = MatchType.detect(buf);
+        return search(buf.toString(), matchType, entryPredicate);
     }
 
     /**
      * 按指定匹配模式查词，不会从所查词中检测匹配模式
      *
      * @param keywords       要查询的字或词
-     * @param searchType     默认为TitleStartsWith
+     * @param matchType      默认为TitleStartsWith
      * @param entryPredicate 条目过滤器
      * @return 搜索结果
      */
-    public Iterator<Entry> search(String keywords, SearchType searchType, Predicate<Entry> entryPredicate) {
-        return new DictionarySearcher(this, keywords, searchType, entryPredicate);
+    public Iterator<Entry> search(String keywords, MatchType matchType, Predicate<Entry> entryPredicate) {
+        return new DictionarySearcher(this, keywords, matchType, entryPredicate);
     }
 
     public boolean hasExtraResources() {

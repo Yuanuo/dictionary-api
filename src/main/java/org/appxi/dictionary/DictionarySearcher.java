@@ -6,7 +6,7 @@ import java.util.function.Predicate;
 
 public final class DictionarySearcher implements Iterator<Dictionary.Entry> {
     private final Dictionary dictionary;
-    private final SearchType searchType;
+    private final MatchType matchType;
     private final byte[] keywordsBytes;
     private final int keywordsBytesLength;
     private final Predicate<Dictionary.Entry> entryPredicate;
@@ -15,15 +15,15 @@ public final class DictionarySearcher implements Iterator<Dictionary.Entry> {
     private Dictionary.Entry nextEntry;
 
     public DictionarySearcher(Dictionary dictionary, String keywords,
-                              SearchType searchType) {
-        this(dictionary, keywords, searchType, null);
+                              MatchType matchType) {
+        this(dictionary, keywords, matchType, null);
     }
 
     public DictionarySearcher(Dictionary dictionary, String keywords,
-                              SearchType searchType,
+                              MatchType matchType,
                               Predicate<Dictionary.Entry> entryPredicate) {
         this.dictionary = dictionary;
-        this.searchType = searchType.name().startsWith("Title") ? searchType : SearchType.TitleStartsWith;
+        this.matchType = matchType.name().startsWith("Title") ? matchType : MatchType.TitleStartsWith;
         this.keywordsBytes = (null == keywords || keywords.isBlank()) ? null : keywords.toLowerCase().getBytes(dictionary.charset());
         this.keywordsBytesLength = null == this.keywordsBytes ? 0 : this.keywordsBytes.length;
         this.entryPredicate = entryPredicate;
@@ -69,23 +69,23 @@ public final class DictionarySearcher implements Iterator<Dictionary.Entry> {
                 this.nextEntry = entry.setScore(100);
                 break;
             }
-            if (this.searchType == SearchType.TitleStartsWith) {
+            if (this.matchType == MatchType.TitleStartsWith) {
                 // 词条名称的前面部分（与搜索关键词相同长度）匹配搜索关键词的全部部分
                 if (Arrays.equals(titleBytes, 0, keywordsBytesLength,
                         keywordsBytes, 0, keywordsBytesLength)) {
                     this.nextEntry = entry.setScore(10);
                     break;
                 }
-            } else if (this.searchType == SearchType.TitleEquals) {
+            } else if (this.matchType == MatchType.TitleEquals) {
                 // 无需再次验证
-            } else if (this.searchType == SearchType.TitleEndsWith) {
+            } else if (this.matchType == MatchType.TitleEndsWith) {
                 // 词条名称的后面部分（与搜索关键词相同长度）匹配搜索关键词的全部部分
                 if (Arrays.equals(titleBytes, titleBytesLength - keywordsBytesLength, titleBytesLength,
                         keywordsBytes, 0, keywordsBytesLength)) {
                     this.nextEntry = entry.setScore(10);
                     break;
                 }
-            } else if (this.searchType == SearchType.TitleContains) {
+            } else if (this.matchType == MatchType.TitleContains) {
                 for (int i = 0; i < titleBytesLength; i++) {
                     if (titleBytes[i] == keywordsBytes[0]) {
                         final int toIdx = i + keywordsBytesLength;
