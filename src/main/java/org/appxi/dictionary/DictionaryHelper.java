@@ -25,6 +25,16 @@ public final class DictionaryHelper {
         }
 
         String content = entry.isCategory() ? "<>" : entry.contentText();
+        content = content.replace("&lt;", "<");
+        content = content.replace("&gt;", ">");
+        content = content.replace("`1`", "<b>");
+        content = content.replace("`2`", "</b>");
+        content = content.replace("`6`", "\n");
+        content = content.replace("`3`", "<div>");
+        content = content.replace("`5`", "<div>");
+        content = content.replace("`7`", "</div>");
+        content = content.replace("`4`", "");
+        content = content.replace("`9`", "");
         //
         content = content.replace("<SEEALSO>", "<a href=\"javascript:void();\" onclick=\"_dict_SeeAlso('" + entry.dictionary.id + "', this)\">");
         content = content.replace("</SEEALSO>", "</a>");
