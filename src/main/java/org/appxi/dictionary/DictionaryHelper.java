@@ -50,6 +50,8 @@ public final class DictionaryHelper {
         content = content.replace("【more】：", "【更多】：");
         content = content.replace("【oldword】：", "【古字】：");
         // 处理换行和缩进，保持风格易于阅读
+        content = content.replace("\\r", "");
+        content = content.replace("\\n", "<br>");
         content = content.replaceAll("(\r\n)|[\r\n]", "<br>");
         if (content.contains("又【")) {
             content = content.replaceAll("([^】又>])【", "$1<br>　【");
